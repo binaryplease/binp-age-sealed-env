@@ -85,6 +85,25 @@ EXAMPLE_API_KEY=from-shell bun run src/demo.ts
 
 `git add secrets/server.env.age` and commit — the encrypted blob is safe to push.
 
+## Run via Nix
+
+A `flake.nix` is included so you need nothing on your machine but Nix — `bun`
+and `age` come from the flake. The apps run against your current checkout (the
+project root is found from the working directory), so seal/unseal still read and
+write the working tree's `secrets/`:
+
+```fish
+nix run .#seal           # encrypt secrets/server.env -> server.env.age
+nix run .#unseal         # decrypt secrets/server.env.age -> server.env
+nix run .#demo           # run the demo program
+
+# Flags pass straight through after `--`:
+nix run .#seal -- --user                 # seal your personal override
+nix run .#unseal -- secrets/other.env.age
+
+nix develop              # drop into a shell with bun + age + ssh on PATH
+```
+
 ## Using it in your own project
 
 Copy `src/secrets.ts`, `scripts/secrets-seal.ts`, `scripts/secrets-unseal.ts`,
