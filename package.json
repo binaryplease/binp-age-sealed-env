@@ -1,0 +1,17 @@
+{
+  "name": "binp-age-sealed-env",
+  "version": "0.1.0",
+  "description": "Keep secrets in git as age-encrypted env files, decrypted into process.env at startup with your SSH key. A standalone, non-Nix take on the agenix pattern.",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "demo": "bun run src/demo.ts",
+    "secrets-seal": "bun run scripts/secrets-seal.ts",
+    "secrets-unseal": "bun run scripts/secrets-unseal.ts",
+    "secrets-seal-user": "bun run scripts/secrets-seal.ts --user",
+    "secrets-unseal-user": "bun run scripts/secrets-unseal.ts --user"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}

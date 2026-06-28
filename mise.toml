@@ -1,0 +1,22 @@
+# Optional task runner shortcuts (https://mise.jdx.dev). Everything also works
+# with plain `bun run …`; these just give you short, memorable verbs.
+
+[tasks.demo]
+description = "Run the demo program (loads the vault, prints which vars are configured)"
+run = "bun run src/demo.ts"
+
+[tasks.secrets-seal]
+description = "Encrypt secrets/server.env -> server.env.age (shared vault)"
+run = "bun run scripts/secrets-seal.ts"
+
+[tasks.secrets-unseal]
+description = "Decrypt secrets/server.env.age -> server.env for editing"
+run = "bun run scripts/secrets-unseal.ts"
+
+[tasks.secrets-seal-user]
+description = "Encrypt your personal override -> user.<you>.env.age"
+run = "bun run scripts/secrets-seal.ts --user"
+
+[tasks.secrets-unseal-user]
+description = "Decrypt your personal override for editing"
+run = "bun run scripts/secrets-unseal.ts --user"

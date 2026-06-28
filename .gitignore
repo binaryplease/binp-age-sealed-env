@@ -1,0 +1,8 @@
+# Decrypted plaintext secrets — never commit these. Only the *.age blobs and
+# *.example templates belong in git.
+secrets/*.env
+!secrets/*.env.example
+
+# dependencies / build
+node_modules/
+*.log
