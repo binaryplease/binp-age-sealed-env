@@ -121,6 +121,32 @@ applyAgeSecrets();          // decrypt the vault into process.env
 The loader logs to the console and never throws — a missing or undecryptable
 vault degrades to "nothing loaded", not a crash.
 
+## Security model — what this protects, and what it doesn't
+
+This pattern moves the trust boundary; it doesn't remove it. Be clear about
+which side of the line each thing sits on.
+
+**What it protects.** Encryption gates *who can decrypt* — only the SSH keys
+listed in `secrets/recipients.txt` — and it protects the blob *at rest in git*.
+That's what makes the committed `secrets/*.age` safe to push: without a listed
+private key it's just ciphertext, so a leaked repo, a public mirror, or a
+teammate who isn't a recipient learns nothing.
+
+**What it does NOT protect.** Encryption does not sandbox the *decrypted* values
+from local code. Anything holding both an authorized SSH private key and a
+checkout of the repo can decrypt the whole vault — and that trust boundary is
+**any process running as you on a key-holding machine**, not just you at the
+keyboard. Such a process can run `scripts/secrets-unseal.ts`, call
+`age --decrypt` directly, or simply read `process.env` after `applyAgeSecrets()`
+auto-loads the vault at app startup. **AI coding agents** (Claude Code, Cursor,
+and the like) with shell access sit squarely inside that boundary and can do all
+three.
+
+So the SSH private key — not the `*.age` blob — is the real asset: be
+deliberate about running untrusted tooling (AI agents included) on a machine
+that holds a recipient key, and remember that old blobs persist in git history,
+so a leaked secret must be rotated at its source rather than merely re-sealed.
+
 ## Configuration
 
 | Variable | Purpose |

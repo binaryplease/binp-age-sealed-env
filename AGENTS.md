@@ -45,6 +45,15 @@ bun run scripts/secrets-unseal.ts    # unseal for editing  (also: --user, --forc
 `bun run secrets-seal`, …); a `flake.nix` exposes `nix run .#{demo,seal,unseal}`
 and `nix develop`. They're conveniences — plain `bun run …` always works.
 
+## A note for AI agents working here
+
+On a checkout where the user's SSH key is present, you (like any local process)
+*can* decrypt this vault — unseal it, run `age --decrypt`, or read the values out
+of `process.env` after `applyAgeSecrets()`. That's inside the trust boundary, but
+treat the decrypted values as the user's secrets: never echo, log, paste, or
+otherwise exfiltrate them, and don't decrypt the vault unless the task actually
+needs it. See the **Security model** section in `README.md` for the full picture.
+
 ## Invariants — do not break these
 
 - **Never commit decrypted plaintext.** Only `*.env.age` blobs and `*.example`

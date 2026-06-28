@@ -129,3 +129,9 @@ into `process.env` **before your program reads it**. Empty values are skipped; a
 already-set var wins, so precedence is **shell env > personal override > shared
 vault**. Missing blob / missing `age` / wrong key → a warning, and your program
 still starts (each feature reports its own "not configured" status).
+
+> Note that auto-loading and `secrets-unseal` both yield *plaintext* secrets to
+> any local process — including AI coding agents with shell access — that holds
+> your SSH key. The encryption protects the blob at rest, not the decrypted
+> values from local code. See the [Security model](../README.md#security-model--what-this-protects-and-what-it-doesnt)
+> section in the top-level README.
