@@ -65,6 +65,10 @@ needs it. See the **Security model** section in `README.md` for the full picture
   binary, or absent identity must `console.warn` and leave `process.env`
   untouched so the program still starts. Don't add throwing paths to
   `applyAgeSecrets()` or its helpers.
+- **Seal deletes the plaintext by default.** On a successful seal,
+  `secrets-seal.ts` removes the plaintext `*.env` input (unless `--keep`) so no
+  decrypted secret is left on disk. It's a deliberate safety default — preserve
+  it, and keep `--keep` as the only opt-out.
 - **Precedence is shell env > personal override > shared vault.** It's enforced
   by "already-set wins" merging, applying the personal layer before the shared
   one (see `applyAgeSecrets`). Preserve that ordering.
