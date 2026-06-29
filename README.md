@@ -121,6 +121,13 @@ applyAgeSecrets();          // decrypt the vault into process.env
 The loader logs to the console and never throws — a missing or undecryptable
 vault degrades to "nothing loaded", not a crash.
 
+> **Adopt the seal script's delete-on-seal behaviour, don't strip it.** On a
+> successful seal, `secrets-seal.ts` removes the plaintext `*.env` input by
+> default (pass `--keep` to retain it) so no decrypted secret is left lying on
+> disk. This is a deliberate safety default, not an accident — keep it when you
+> copy the script into your project, and pair it with a `.gitignore` rule for
+> `secrets/*.env` so a plaintext (kept or mid-edit) can never be committed.
+
 ## Security model — what this protects, and what it doesn't
 
 This pattern moves the trust boundary; it doesn't remove it. Be clear about
