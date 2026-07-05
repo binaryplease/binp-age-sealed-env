@@ -41,7 +41,7 @@ requiring Nix to be in the loop at runtime.
 
 ```
 src/
-  secrets.ts          # the loader: applyAgeSecrets() + tool/identity resolution
+  secrets.ts          # the loader: applyAgeSecrets() (best-effort) + ensureEnv() (fail-loud)
   demo.ts             # tiny example that loads the vault and reads two vars
 scripts/
   secrets-seal.ts     # encrypt  secrets/server.env  -> server.env.age   (agenix's "seal")
@@ -120,6 +120,24 @@ applyAgeSecrets();          // decrypt the vault into process.env
 
 The loader logs to the console and never throws — a missing or undecryptable
 vault degrades to "nothing loaded", not a crash.
+
+When a feature genuinely *cannot* run without a given secret, guard its edge with
+`ensureEnv` — the loud counterpart to the best-effort loader. It applies the
+vault, then guarantees the named vars are present, exiting with an actionable
+message (which keys are missing + how to seal them) if any is not:
+
+```ts
+import { ensureEnv } from "./secrets";
+
+// Loads the vault, then guarantees these are set — or exits non-zero, loudly.
+const { EXAMPLE_API_KEY, DATABASE_URL } = ensureEnv("EXAMPLE_API_KEY", "DATABASE_URL");
+```
+
+`ensureEnv` still honours precedence (**shell env > personal override > shared
+vault**), so a value exported in your shell satisfies it just as a sealed one
+does. Use `applyAgeSecrets()` for the scaffold-and-run path where a missing
+secret should degrade gracefully; reach for `ensureEnv` only where you'd rather
+fail fast than hit an opaque 401 later.
 
 > **Adopt the seal script's delete-on-seal behaviour, don't strip it.** On a
 > successful seal, `secrets-seal.ts` removes the plaintext `*.env` input by

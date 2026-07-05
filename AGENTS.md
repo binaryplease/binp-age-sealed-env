@@ -18,7 +18,8 @@ secret-manager SaaS, no wrapper process.
 
 The whole system is three short files plus a `secrets/` dir:
 
-- `src/secrets.ts` — the loader: `applyAgeSecrets()` + tool/identity resolution.
+- `src/secrets.ts` — the loader: `applyAgeSecrets()` (best-effort) + `ensureEnv()`
+  (fail-loud guarantee for required secrets) + tool/identity resolution.
 - `src/demo.ts` — tiny example: loads the vault, reports which vars are set.
 - `scripts/secrets-seal.ts` — encrypt `secrets/server.env` → `server.env.age`.
 - `scripts/secrets-unseal.ts` — decrypt `server.env.age` → `server.env` for editing.
@@ -64,7 +65,9 @@ needs it. See the **Security model** section in `README.md` for the full picture
 - **The loader is best-effort and never throws.** A missing blob, missing `age`
   binary, or absent identity must `console.warn` and leave `process.env`
   untouched so the program still starts. Don't add throwing paths to
-  `applyAgeSecrets()` or its helpers.
+  `applyAgeSecrets()` or its helpers. (`ensureEnv()` is the deliberate opt-in
+  exception — the fail-loud edge for *required* secrets — and it fails via
+  `process.exit`, not a thrown error, so the best-effort loader stays non-throwing.)
 - **Seal deletes the plaintext by default.** On a successful seal,
   `secrets-seal.ts` removes the plaintext `*.env` input (unless `--keep`) so no
   decrypted secret is left on disk. It's a deliberate safety default — preserve

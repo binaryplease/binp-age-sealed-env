@@ -224,3 +224,64 @@ export function applyAgeSecrets(): string[] {
   }
   return applied;
 }
+
+/**
+ * Build the loud, actionable error shown when required secrets are absent after
+ * the vault has been applied. Pure (no I/O) so the caller chooses where it goes
+ * — {@link ensureEnv} writes it to stderr. Names the missing keys and the exact
+ * seal-it-into-the-vault recipe so the user can fix it without hunting through
+ * the docs.
+ */
+export function describeMissingSecrets(missingNames: string[]): string {
+  const plural = missingNames.length === 1 ? "secret" : "secrets";
+  return [
+    `[ensure-env] Missing required ${plural}: ${missingNames.join(", ")}`,
+    "",
+    "Add them to the age vault:",
+    "  bun run scripts/secrets-unseal.ts    # decrypt secrets/server.env",
+    `  $EDITOR secrets/server.env           # set ${missingNames
+      .map((name) => `${name}=…`)
+      .join(", ")}`,
+    "  bun run scripts/secrets-seal.ts      # re-encrypt + drop the plaintext",
+    "",
+    `…or export it in your shell:  export ${missingNames[0]}=…`,
+  ].join("\n");
+}
+
+/**
+ * The one-liner a consumer wants when a secret is *required*: apply the age
+ * vault, then guarantee that each named env var is present and non-empty. On
+ * success it returns a map of the resolved values, typed to the exact names
+ * passed. On any missing key it writes {@link describeMissingSecrets} to stderr
+ * and exits the process with a non-zero code — failing loudly so the user seals
+ * the key, instead of letting a downstream API call fail later with an opaque
+ * 401.
+ *
+ * This is the deliberate, opt-in *loud* counterpart to the best-effort
+ * {@link applyAgeSecrets}: the loader itself never throws so a program can still
+ * scaffold and boot without a vault, but a feature that genuinely cannot run
+ * without a credential calls `ensureEnv` at its own edge to stop early with a
+ * clear message. It fails via `process.exit`, not a thrown error, so it never
+ * turns `applyAgeSecrets()` or its helpers into a throwing path.
+ *
+ *   const { EXAMPLE_API_KEY } = ensureEnv("EXAMPLE_API_KEY");
+ *
+ * Precedence still applies through {@link applyAgeSecrets}: a shell-exported
+ * value beats the personal override, which beats the shared vault — so a key set
+ * in any of those three satisfies the guarantee.
+ */
+export function ensureEnv<EnvVarName extends string>(
+  ...requiredNames: EnvVarName[]
+): Record<EnvVarName, string> {
+  applyAgeSecrets();
+  const missingNames = requiredNames.filter((name) => !process.env[name]);
+  if (missingNames.length > 0) {
+    console.error(describeMissingSecrets(missingNames));
+    process.exit(1);
+  }
+  const resolved = {} as Record<EnvVarName, string>;
+  for (const name of requiredNames) {
+    resolved[name] = process.env[name] as string;
+  }
+  return resolved;
+}

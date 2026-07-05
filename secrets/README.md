@@ -130,6 +130,13 @@ already-set var wins, so precedence is **shell env > personal override > shared
 vault**. Missing blob / missing `age` / wrong key → a warning, and your program
 still starts (each feature reports its own "not configured" status).
 
+For a secret a feature genuinely can't run without, call `ensureEnv(...names)`
+from `src/secrets.ts` at that feature's edge instead: it applies the vault the
+same way, then guarantees each named var is set and non-empty — exiting non-zero
+with an actionable "seal these keys" message if any is missing, rather than
+degrading to "not configured". It honours the same precedence, so a shell-exported
+value satisfies it too.
+
 > Note that auto-loading and `secrets-unseal` both yield *plaintext* secrets to
 > any local process — including AI coding agents with shell access — that holds
 > your SSH key. The encryption protects the blob at rest, not the decrypted
