@@ -137,6 +137,14 @@ with an actionable "seal these keys" message if any is missing, rather than
 degrading to "not configured". It honours the same precedence, so a shell-exported
 value satisfies it too.
 
+From a **shell** (not Bun), the `ensure-env` CLI is the same guarantee: `bun run
+--no-env-file scripts/ensure-env.ts KEY…` loads the vault, verifies the keys, and
+prints `export KEY='value'` lines to `eval` (or `KEY="value"` dotenv lines with
+`--dotenv`). `--all` loads every sealed key without naming them, and `--list`
+prints just the available names + their source layer (no values). All vault logs
+go to stderr, so stdout stays safe to `eval` or parse. See the
+[README](../README.md#from-a-shell--the-ensure-env-cli) for the full table.
+
 > Note that auto-loading and `secrets-unseal` both yield *plaintext* secrets to
 > any local process — including AI coding agents with shell access — that holds
 > your SSH key. The encryption protects the blob at rest, not the decrypted

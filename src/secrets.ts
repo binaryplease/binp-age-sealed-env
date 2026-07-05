@@ -113,18 +113,17 @@ function parseDotenv(text: string): Array<[string, string]> {
 }
 
 /**
- * Decrypt one sealed `.age` env file and merge it into `process.env`. Existing
- * non-empty env vars win, so anything already set — a shell-exported override,
- * or a higher-precedence layer applied earlier in this run — beats the sealed
- * value. Returns the names of the keys it set. `layerLabel` only colours the log
- * line so the personal vs. shared layers are distinguishable.
+ * Decrypt one sealed `.age` env file to its `KEY=value` entries, or null when
+ * decryption failed (warning already logged to stderr). This is the single
+ * source of "what does this layer define": {@link loadAgeFile} builds on it to
+ * merge into `process.env`, {@link listAvailableSecrets} to enumerate names
+ * without touching the environment.
  */
-function loadAgeFile(
+function decryptAgeFile(
   ageFile: string,
   ageCommand: string[],
   identityFlags: string[],
-  layerLabel: string,
-): string[] {
+): Array<[string, string]> | null {
   const decryption = Bun.spawnSync(
     [...ageCommand, "--decrypt", ...identityFlags, ageFile],
     { stdout: "pipe", stderr: "pipe", env: AGE_CHILD_ENV },
@@ -135,10 +134,32 @@ function loadAgeFile(
     console.warn(
       `[secrets] failed to decrypt ${ageFile} (no matching identity?): ${errorText}`,
     );
-    return [];
+    return null;
   }
 
-  const entries = parseDotenv(new TextDecoder().decode(decryption.stdout));
+  return parseDotenv(new TextDecoder().decode(decryption.stdout));
+}
+
+/**
+ * Decrypt one sealed `.age` env file and merge it into `process.env`. Existing
+ * non-empty env vars win, so anything already set — a shell-exported override,
+ * or a higher-precedence layer applied earlier in this run — beats the sealed
+ * value. Returns the names of the keys it set. `layerLabel` only colours the log
+ * line so the personal vs. shared layers are distinguishable.
+ *
+ * All logging goes to stderr (`console.warn`), not stdout: the `ensure-env` CLI
+ * emits eval-able `export`/dotenv lines on stdout, so a stray log line there
+ * would corrupt what a shell `eval`s or a dotenv parser reads.
+ */
+function loadAgeFile(
+  ageFile: string,
+  ageCommand: string[],
+  identityFlags: string[],
+  layerLabel: string,
+): string[] {
+  const entries = decryptAgeFile(ageFile, ageCommand, identityFlags);
+  if (entries === null) return [];
+
   const applied: string[] = [];
   const overridden: string[] = [];
   for (const [key, value] of entries) {
@@ -151,7 +172,7 @@ function loadAgeFile(
   }
 
   if (applied.length > 0) {
-    console.log(
+    console.warn(
       `[secrets] loaded ${applied.length} ${layerLabel} secret(s): ${applied.join(", ")}`,
     );
   } else if (entries.length === 0) {
@@ -160,7 +181,7 @@ function loadAgeFile(
         `seal real values (bun run scripts/secrets-seal.ts).`,
     );
   } else {
-    console.log(
+    console.warn(
       `[secrets] decrypted ${ageFile} (${layerLabel}); all ${entries.length} var(s) already set ` +
         `(${overridden.join(", ")}), nothing applied.`,
     );
@@ -184,7 +205,20 @@ function loadAgeFile(
  * absent — a checkout with no personal file just loads the shared vault, and a
  * checkout with neither loads nothing and still starts.
  */
-export function applyAgeSecrets(): string[] {
+/**
+ * Shared preamble for every vault operation: the sealed layer files that are
+ * actually present (highest precedence first), an age-compatible command, and
+ * the `-i` identity flags to decrypt with. Returns null — after warning to
+ * stderr, exactly as {@link applyAgeSecrets} used to inline — when nothing is
+ * sealed, or no age binary / identity is available. Extracting it lets
+ * {@link applyAgeSecrets} and {@link listAvailableSecrets} share one definition
+ * of "can we decrypt, and what layers exist" so they can't drift apart.
+ */
+function resolveVaultPrereqs(): {
+  present: Array<{ file: string; label: string }>;
+  ageCommand: string[];
+  identityFlags: string[];
+} | null {
   const userName = resolveUserName();
   // Highest precedence first; loadAgeFile's "already set wins" rule does the
   // layering, so the personal file must be applied before the shared one.
@@ -195,8 +229,8 @@ export function applyAgeSecrets(): string[] {
   const present = layers.filter((layer) => existsSync(layer.file));
 
   if (present.length === 0) {
-    console.log(`[secrets] no ${AGE_FILE} (or personal override); nothing to load.`);
-    return [];
+    console.warn(`[secrets] no ${AGE_FILE} (or personal override); nothing to load.`);
+    return null;
   }
 
   const ageCommand = resolveAgeCommand();
@@ -205,7 +239,7 @@ export function applyAgeSecrets(): string[] {
       `[secrets] sealed env file(s) present but no 'age'/'rage' binary and no 'nix' found — ` +
         `secrets not loaded. Install one (e.g. nix profile install nixpkgs#age).`,
     );
-    return [];
+    return null;
   }
 
   const identities = resolveIdentities();
@@ -214,15 +248,72 @@ export function applyAgeSecrets(): string[] {
       `[secrets] no readable SSH identity (tried ${DEFAULT_IDENTITIES.join(", ")}) — ` +
         `cannot decrypt the sealed env file(s).`,
     );
-    return [];
+    return null;
   }
 
   const identityFlags = identities.flatMap((identity) => ["-i", identity]);
+  return { present, ageCommand, identityFlags };
+}
+
+export function applyAgeSecrets(): string[] {
+  const prereqs = resolveVaultPrereqs();
+  if (!prereqs) return [];
+
   const applied: string[] = [];
-  for (const layer of present) {
-    applied.push(...loadAgeFile(layer.file, ageCommand, identityFlags, layer.label));
+  for (const layer of prereqs.present) {
+    applied.push(
+      ...loadAgeFile(layer.file, prereqs.ageCommand, prereqs.identityFlags, layer.label),
+    );
   }
   return applied;
+}
+
+/**
+ * Every secret the present vault layers define, each paired with the layer that
+ * provides it (`source` — e.g. `"personal (enrico)"` or `"shared"`), WITHOUT
+ * merging anything into `process.env`. Names only — no values — so the result is
+ * always safe to print.
+ *
+ * This backs `ensure-env --list`: show *which* secrets are available to load,
+ * without exposing a single value. Ordering follows layer precedence (personal
+ * first) and is de-duplicated, so a key sealed in both layers is reported once,
+ * attributed to the higher-precedence (personal) layer — matching where
+ * {@link applyAgeSecrets} would resolve it from.
+ *
+ * Returns [] — warning first, like {@link applyAgeSecrets} — when nothing is
+ * sealed or no age binary / identity is available.
+ */
+export function listAvailableSecrets(): Array<{ name: string; source: string }> {
+  const prereqs = resolveVaultPrereqs();
+  if (!prereqs) return [];
+
+  const seen = new Set<string>();
+  const secrets: Array<{ name: string; source: string }> = [];
+  for (const layer of prereqs.present) {
+    const entries = decryptAgeFile(layer.file, prereqs.ageCommand, prereqs.identityFlags);
+    if (!entries) continue;
+    for (const [key] of entries) {
+      if (seen.has(key)) continue; // first layer wins — mirrors read-time precedence
+      seen.add(key);
+      secrets.push({ name: key, source: layer.label });
+    }
+  }
+  return secrets;
+}
+
+/**
+ * The de-duplicated union of every secret name defined across the present vault
+ * layers (personal + shared), WITHOUT merging anything into `process.env`.
+ *
+ * This backs `ensure-env --all`: a consumer that wants every sealed secret
+ * instead of enumerating each key by hand. It only reports which names exist;
+ * read-time precedence (shell env > personal > shared) still applies when the
+ * caller pairs these names with {@link ensureEnv}. A names-only projection of
+ * {@link listAvailableSecrets} — same layers, same precedence-ordered
+ * de-duplication — so the two views can't drift apart.
+ */
+export function vaultSecretNames(): string[] {
+  return listAvailableSecrets().map((secret) => secret.name);
 }
 
 /**

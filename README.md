@@ -46,6 +46,7 @@ src/
 scripts/
   secrets-seal.ts     # encrypt  secrets/server.env  -> server.env.age   (agenix's "seal")
   secrets-unseal.ts   # decrypt  secrets/server.env.age -> server.env    (agenix's "-e" half)
+  ensure-env.ts       # shell-facing CLI: guarantee named secrets, emit export/dotenv lines
 secrets/
   recipients.txt      # the public keys allowed to decrypt (committed)
   server.env.example  # template for the shared vault (committed)
@@ -107,8 +108,8 @@ nix develop              # drop into a shell with bun + age + ssh on PATH
 ## Using it in your own project
 
 Copy `src/secrets.ts`, `scripts/secrets-seal.ts`, `scripts/secrets-unseal.ts`,
-and the `secrets/` directory into your project, then call the loader once, first,
-before anything reads config:
+`scripts/ensure-env.ts`, and the `secrets/` directory into your project, then
+call the loader once, first, before anything reads config:
 
 ```ts
 import { applyAgeSecrets } from "./secrets";
@@ -138,6 +139,33 @@ vault**), so a value exported in your shell satisfies it just as a sealed one
 does. Use `applyAgeSecrets()` for the scaffold-and-run path where a missing
 secret should degrade gracefully; reach for `ensureEnv` only where you'd rather
 fail fast than hit an opaque 401 later.
+
+### From a shell — the `ensure-env` CLI
+
+`ensureEnv` is in-process, for Bun code. For **shell** scripts (or any consumer
+that just wants the values in its environment) there's `scripts/ensure-env.ts`:
+it loads the vault, guarantees the named keys, and prints them as `export` lines
+to `eval`. Capture first so a missing key aborts before `eval`:
+
+```sh
+secrets="$(bun run --no-env-file scripts/ensure-env.ts EXAMPLE_API_KEY DATABASE_URL)" || exit 1
+eval "$secrets"
+# $EXAMPLE_API_KEY and $DATABASE_URL are now set
+```
+
+| Invocation | What it does |
+|---|---|
+| `ensure-env KEY…` | verify + print `export KEY='value'` lines (stdout) |
+| `ensure-env --dotenv KEY…` | print `KEY="value"` dotenv lines for a parser that reads stdout directly |
+| `ensure-env --all` | expand to every key sealed in the vault (no need to name them) |
+| `ensure-env --list` | list available secret names + their source layer — **no values** |
+| `ensure-env --check KEY…` | verify only; print nothing on success |
+
+All vault logging goes to stderr, so stdout stays safe to `eval` or parse.
+Missing keys print an actionable message to stderr and exit non-zero. Run it
+with `--no-env-file` (the shebang, the `ensure-env` package script, and
+`mise run ensure-env` all do) so a stray project-root `.env` can't quietly
+satisfy a `--check`.
 
 > **Adopt the seal script's delete-on-seal behaviour, don't strip it.** On a
 > successful seal, `secrets-seal.ts` removes the plaintext `*.env` input by

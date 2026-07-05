@@ -6,6 +6,7 @@
   "license": "MIT",
   "scripts": {
     "demo": "bun run src/demo.ts",
+    "ensure-env": "bun run --no-env-file scripts/ensure-env.ts",
     "secrets-seal": "bun run scripts/secrets-seal.ts",
     "secrets-unseal": "bun run scripts/secrets-unseal.ts",
     "secrets-seal-user": "bun run scripts/secrets-seal.ts --user",

@@ -5,6 +5,10 @@
 description = "Run the demo program (loads the vault, prints which vars are configured)"
 run = "bun run src/demo.ts"
 
+[tasks.ensure-env]
+description = "Guarantee named secrets are set (loads the vault); fails loud if not"
+run = "bun run --no-env-file scripts/ensure-env.ts"
+
 [tasks.secrets-seal]
 description = "Encrypt secrets/server.env -> server.env.age (shared vault)"
 run = "bun run scripts/secrets-seal.ts"

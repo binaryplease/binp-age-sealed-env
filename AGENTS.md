@@ -16,13 +16,17 @@ non-Nix take on the [agenix](https://github.com/ryantm/agenix) pattern, built
 directly on [`age`](https://github.com/FiloSottile/age). No vault server, no
 secret-manager SaaS, no wrapper process.
 
-The whole system is three short files plus a `secrets/` dir:
+The whole system is a handful of short files plus a `secrets/` dir:
 
 - `src/secrets.ts` — the loader: `applyAgeSecrets()` (best-effort) + `ensureEnv()`
-  (fail-loud guarantee for required secrets) + tool/identity resolution.
+  (fail-loud guarantee for required secrets) + `listAvailableSecrets()` /
+  `vaultSecretNames()` (name-only vault inspection) + tool/identity resolution.
 - `src/demo.ts` — tiny example: loads the vault, reports which vars are set.
 - `scripts/secrets-seal.ts` — encrypt `secrets/server.env` → `server.env.age`.
 - `scripts/secrets-unseal.ts` — decrypt `server.env.age` → `server.env` for editing.
+- `scripts/ensure-env.ts` — the shell-facing `ensure-env` CLI: guarantee named
+  secrets are set (or `--all`/`--list`), then emit `export`/dotenv lines on stdout
+  for a shell to `eval` or a dotenv parser to read.
 
 `README.md` and `secrets/README.md` are the canonical, up-to-date docs — read
 them before changing behavior.
@@ -40,7 +44,12 @@ bun install
 bun run src/demo.ts                  # run the demo
 bun run scripts/secrets-seal.ts      # seal shared vault   (also: --user, --keep)
 bun run scripts/secrets-unseal.ts    # unseal for editing  (also: --user, --force)
+bun run --no-env-file scripts/ensure-env.ts KEY…   # guarantee secrets, print exports
 ```
+
+`ensure-env` runs with `--no-env-file` (via its shebang, the `ensure-env`
+package script, and the `mise run ensure-env` task) so a stray project-root
+`.env` can't silently satisfy a `--check`; keep that flag when you invoke it.
 
 `mise.toml` and `package.json` scripts mirror these (`mise run demo`,
 `bun run secrets-seal`, …); a `flake.nix` exposes `nix run .#{demo,seal,unseal}`
@@ -62,6 +71,10 @@ needs it. See the **Security model** section in `README.md` for the full picture
   way. If you create a `secrets/*.env`, it must stay local.
 - **Never print or log a secret value.** Mirror `demo.ts`: prove presence
   (e.g. char count), never the contents. The loader logs key *names* only.
+- **All loader diagnostics go to stderr** (`console.warn`), never stdout. The
+  `ensure-env` CLI emits eval-able `export`/dotenv lines on stdout, so a stray
+  log line there would corrupt what a shell `eval`s or a dotenv parser reads.
+  Keep new loader logging on `console.warn`/`console.error`.
 - **The loader is best-effort and never throws.** A missing blob, missing `age`
   binary, or absent identity must `console.warn` and leave `process.env`
   untouched so the program still starts. Don't add throwing paths to
