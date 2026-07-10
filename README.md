@@ -23,19 +23,83 @@ Three short Bun/TypeScript files you can copy into any project.
   still starts and each feature reports its own "not configured" state. So you
   can scaffold and run before any real credentials exist.
 
-## Why
+## Why — this method vs. agenix
 
-| | This pattern |
-|---|---|
-| Where secrets live | In your repo, encrypted (versioned, reviewable, one source of truth) |
-| Who can read them | Exactly the SSH keys in `recipients.txt` — add/remove by editing one file and re-sealing |
-| Trust root | The SSH keys your team already has — no new identity system |
-| Diffs | Readable text (ASCII-armored), so rotations show up in code review |
-| Runtime dependency | One `age`-compatible binary, or `nix` as an automatic fallback |
-| Coupling | None — plain `age` + a dotenv parser; drop the three files into any Bun project |
+Both encrypt secrets to SSH public keys and commit the ciphertext to git; both
+let you add/remove readers by editing a recipient list and re-sealing. The
+difference is what sits *around* `age`: this pattern is a handful of Bun files
+that inject into `process.env`, while agenix is a Nix module that decrypts to
+files at system activation. The table compares them dimension by dimension; the
+two subsections below show each in action.
+
+| Dimension | This method (age-sealed-env) | agenix |
+|---|---|---|
+| Where secrets live | In your repo, `age`-encrypted (versioned, reviewable, one source of truth) | In your repo, `age`-encrypted — same |
+| Recipients declared in | `secrets/recipients.txt` — a plain list of SSH public keys | `secrets.nix` — a Nix expression mapping each `*.age` to its `publicKeys` |
+| Identity used to decrypt | The developer's **personal** SSH key (`~/.ssh/id_ed25519`) | The **host** SSH key on the NixOS machine |
+| Where decrypted values land | `process.env`, in-process, at app startup | Files under `/run/agenix/<name>`, at NixOS/home-manager activation |
+| Runtime dependency | Bun + one `age`-compatible binary (or `nix` as an automatic fallback) | Nix + a NixOS/home-manager activation |
+| Editing workflow | `unseal` → edit plaintext → `seal` (plaintext deleted on seal) | `agenix -e secret.age` (decrypt, edit, re-encrypt in one step) |
+| Coupling | None — drop the files into any Bun project | Requires Nix and the agenix module wired into your system config |
+| Diffs | Readable text (ASCII-armored), so rotations show up in code review | Readable text (ASCII-armored) — same |
+| Best for | App-level env vars, non-Nix teams and CI | NixOS system-service secrets, declarative hosts |
 
 It is the convenience of agenix (encrypt to SSH keys, edit-and-reseal) without
 requiring Nix to be in the loop at runtime.
+
+### The current method — example
+
+Add your public key, seal a vault, and read it from `process.env`:
+
+```fish
+# 1. Declare who can decrypt (a plain list of SSH public keys).
+cat ~/.ssh/id_ed25519.pub >> secrets/recipients.txt
+
+# 2. Create + seal the shared vault (plaintext is deleted on success).
+cp secrets/server.env.example secrets/server.env
+$EDITOR secrets/server.env              # EXAMPLE_API_KEY=…, DATABASE_URL=…
+bun run scripts/secrets-seal.ts         # -> secrets/server.env.age
+
+# 3. Edit later with the unseal → edit → seal loop.
+bun run scripts/secrets-unseal.ts       # server.env.age -> server.env (0600)
+```
+
+```ts
+// In your app — decrypted with YOUR personal SSH key, into process.env:
+import { applyAgeSecrets } from "./secrets";
+
+applyAgeSecrets();                       // vault -> process.env, before config is read
+console.log(process.env.EXAMPLE_API_KEY); // now populated from the sealed vault
+```
+
+### The agenix method — example
+
+Recipients are a Nix expression, and the plaintext lands in a file that a NixOS
+service reads at activation — decrypted with the **host** key, not yours:
+
+```nix
+# secrets.nix — declare which public keys may decrypt each secret.
+let
+  alice  = "ssh-ed25519 AAAA…alice";      # a developer's key
+  webhost = "ssh-ed25519 AAAA…webhost";   # the target machine's host key
+in {
+  "example-api-key.age".publicKeys = [ alice webhost ];
+}
+```
+
+```fish
+# Edit a secret: agenix decrypts, opens $EDITOR, re-encrypts on save.
+agenix -e example-api-key.age
+```
+
+```nix
+# configuration.nix — wire the secret into the system; decrypted at activation.
+age.secrets.example-api-key.file = ./secrets/example-api-key.age;
+
+# A service reads the decrypted plaintext from a file path, not process.env:
+systemd.services.myapp.serviceConfig.EnvironmentFile =
+  config.age.secrets.example-api-key.path;   # e.g. /run/agenix/example-api-key
+```
 
 ## Layout
 
